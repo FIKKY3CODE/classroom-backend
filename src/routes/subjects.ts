@@ -25,8 +25,8 @@ router.get('/', async (req, res) => {
         // +limit means convert limit to a number, if limit is not a number, it will be NaN, and Math.max will return NaN, which will be converted to 1 by the || operator. This is useful for pagination, as it ensures that the user cannot request a page number less than 1, which would result in an error.
         // ensures that the page number is at least 1, and if not, it sets it to 1. This is useful for pagination, as it ensures that the user cannot request a page number less than 1, which would result in an error.
         // Number(page) || 1 provides extra safety if the query parameter is passed as an invalid string like ?page=abc
-        const currentPage = Math.max(1, Number(page) || 1);
-        const limitPerPage = Math.max(1, Number(limit) || 10);
+        const currentPage = Math.max(1, parseInt(String(page), 10) || 1);
+        const limitPerPage = Math.min(Math.max(1, parseInt(String(limit), 10) || 10), 100); // Limit the page size to 100
         
         //Tells PostgreSQL how many rows to skip. If you are on page 3 with a limit of 10, it skips the first 20 items ((3 - 1) * 10 = 20) and fetches items 21 through 30.
         // offset is how many records to skip to get to the next page.
@@ -51,10 +51,13 @@ router.get('/', async (req, res) => {
 
         // if department query exists, filter by department name
         if (department && typeof department === 'string') {
-            filterconditions.push(
-                // SQL equivalent: departments.name ILIKE '%department%'
-                ilike(departments.name, `%${department}%`)
-            );
+            
+            const deptPattern = `$String(department).replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}%`; // Matches department names starting with the provided string
+            // SQL equivalent: departments.name ILIKE '%department%'
+            filterconditions.push( ilike(departments.name, deptPattern));
+                
+                
+            
         }
 
         // combine all filters using AND operator if any exist, so that all filters must be true for a record to be returned
