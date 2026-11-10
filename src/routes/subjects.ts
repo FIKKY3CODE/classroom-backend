@@ -1,7 +1,4 @@
-//this file is an express router handling the /api/subjects endpoint, which is used to fetch subjects from the database. It supports optional query parameters for searching and filtering subjects, as well as pagination. The router uses Drizzle ORM to interact with the PostgreSQL database, leveraging helper functions for building SQL queries.
-
-
-// routes/subjects.ts
+//routes/subjects.ts
 import express from "express";
 import { subjects, departments } from "../db/schema";
 // Drizzle helper functions:
@@ -36,28 +33,29 @@ router.get('/', async (req, res) => {
         // define array to store filter conditions
         const filterconditions = [];
 
+        // Helper to escape regex/LIKE special characters in user input to prevent wildcard manipulation
+        const escapeLike = (s: string) => s.replace(/[\\%_]/g, '\\$&');
+
         // if search query exists filter by subject name or subject code
         if (search && typeof search === 'string') {
+            const safeSearch = escapeLike(search);
             filterconditions.push(
                 or(
                     //% is a wildcard that matches any number of characters, so that we can search for subjects that contain the search string anywhere in their name or code. This is useful for searching, as it allows the user to find subjects even if they don't know the exact name or code.
                     // SQL equivalent: subjects.name ILIKE '%search%'
-                    ilike(subjects.name, `%${search}%`),
+                    ilike(subjects.name, `%${safeSearch}%`),
                     // SQL equivalent: subjects.code ILIKE '%search%'
-                    ilike(subjects.code, `%${search}%`)
+                    ilike(subjects.code, `%${safeSearch}%`)
                 )
             );
         }
 
         // if department query exists, filter by department name
         if (department && typeof department === 'string') {
-            
-            const deptPattern = `$String(department).replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')}%`; // Matches department names starting with the provided string
-            // SQL equivalent: departments.name ILIKE '%department%'
-            filterconditions.push( ilike(departments.name, deptPattern));
-                
-                
-            
+            // FIXED: Properly interpolate the department variable instead of literal $String text
+            const deptPattern = `${escapeLike(department)}%`; 
+            // SQL equivalent: departments.name ILIKE 'department%'
+            filterconditions.push(ilike(departments.name, deptPattern));
         }
 
         // combine all filters using AND operator if any exist, so that all filters must be true for a record to be returned
@@ -75,7 +73,8 @@ router.get('/', async (req, res) => {
 
         // Extract raw count number (PostgreSQL returns count as a string, so we wrap with Number())
         const totalCount = Number(countResult[0]?.count || 0);
-        //fetching actual paginated data
+
+        // fetching actual paginated data
         // QUERY 2: Fetch the actual list of subjects for the requested page
         const subjectsList = await db
             .select({
@@ -85,10 +84,11 @@ router.get('/', async (req, res) => {
                 department: { ...getTableColumns(departments) }
             })
             .from(subjects)
-            //Links the subject to its parent department using their matching IDs
+            // Links the subject to its parent department using their matching IDs
             .leftJoin(departments, eq(subjects.departmentId, departments.id))
             .where(whereClause)
-            .orderBy(desc(subjects.createdAt)) // Sort newest subjects first
+            // Sort newest subjects first, with id as a tie-breaker for consistent pagination
+            .orderBy(desc(subjects.createdAt), desc(subjects.id)) 
             .limit(limitPerPage)                // Take only the specified number of items
             .offset(offset);                    // Skip the items from earlier pages
 
@@ -111,6 +111,3 @@ router.get('/', async (req, res) => {
 });
 
 export default router;
-
-
-// Drizzle Helpers (or, ilike, and, etc.): Special query builders that translate your JavaScript code into safe, clean SQL commands under the hood without you having to write raw SQL strings.
